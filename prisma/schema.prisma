@@ -1,0 +1,501 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+
+enum OrganizationType {
+  WOODWIND_WORKSHOP
+  BRASS_WORKSHOP
+  MUSIC_SCHOOL
+  MUSIC_STORE
+  ORCHESTRA
+  CLUB
+  OTHER
+}
+
+enum UserRole {
+  ADMIN
+  STAFF
+  VIEWER
+}
+
+enum InstrumentStatus {
+  AVAILABLE
+  RENTED
+  IN_REPAIR
+  AWAY_OR_MISSING
+  OVERHAUL_EXTERNAL
+  RESERVED
+  SOLD
+  RETIRED
+}
+
+enum InstrumentFamily {
+  WOODWIND
+  BRASS
+  STRING
+  PERCUSSION
+  KEYBOARD
+  OTHER
+}
+
+enum ConditionReportType {
+  INITIAL
+  INSPECTION
+  RETURN
+  REPAIR_CHECK
+  OVERHAUL
+  OTHER
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  DIRECT_DEBIT
+  CARD
+  UNKNOWN
+}
+
+enum RentalContractStatus {
+  ACTIVE
+  ENDED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  OPEN
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum DocumentType {
+  PURCHASE_INVOICE
+  RENTAL_CONTRACT
+  HANDOVER_PROTOCOL
+  RETURN_PROTOCOL
+  REPAIR_REPORT
+  VALUATION
+  INSURANCE
+  MANUAL
+  OTHER
+}
+
+enum PhotoType {
+  GENERAL
+  DAMAGE
+  SERIAL_NUMBER
+  ACCESSORY
+  BEFORE_REPAIR
+  AFTER_REPAIR
+  CONDITION_REPORT
+}
+
+enum NoteType {
+  GENERAL
+  CONDITION
+  RENTAL
+  REPAIR
+  CUSTOMER
+  INTERNAL
+}
+
+// ─────────────────────────────────────────────
+// MODELS
+// ─────────────────────────────────────────────
+
+model Organization {
+  id        String           @id @default(cuid())
+  name      String
+  type      OrganizationType @default(WOODWIND_WORKSHOP)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  members     OrganizationMember[]
+  instruments Instrument[]
+  customers   Customer[]
+  categories  InstrumentCategory[]
+  brands      InstrumentBrand[]
+  rentals     RentalContract[]
+  payments    Payment[]
+  notes       Note[]
+  auditLogs   AuditLog[]
+  settings    OrganizationSettings?
+  dunningRecords DunningRecord[]
+}
+
+model UserProfile {
+  id        String   @id
+  email     String   @unique
+  fullName  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships OrganizationMember[]
+}
+
+model OrganizationMember {
+  id             String    @id @default(cuid())
+  organizationId String
+  userId         String
+  role           UserRole  @default(STAFF)
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         UserProfile  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+  @@index([userId])
+}
+
+model InstrumentCategory {
+  id             String           @id @default(cuid())
+  organizationId String
+  name           String
+  family         InstrumentFamily @default(WOODWIND)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  instruments  Instrument[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model InstrumentBrand {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  instruments  Instrument[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model Instrument {
+  id                 String           @id @default(cuid())
+  organizationId     String
+  internalId         String
+  label              String?
+  categoryId         String?
+  brandId            String?
+  model              String?
+  serialNumber       String?
+  groupCode          String?
+  purchaseDate       DateTime?
+  purchasePrice      Decimal?         @db.Decimal(10, 2)
+  currentValue       Decimal?         @db.Decimal(10, 2)
+  currency           String           @default("EUR")
+  defaultMonthlyRent Decimal?         @db.Decimal(10, 2)
+  defaultDeposit     Decimal?         @db.Decimal(10, 2)
+  conditionRating    Int?
+  status             InstrumentStatus @default(AVAILABLE)
+  location           String?
+  generalNotes       String?
+  isActive           Boolean          @default(true)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  organization     Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  category         InstrumentCategory?        @relation(fields: [categoryId], references: [id])
+  brand            InstrumentBrand?           @relation(fields: [brandId], references: [id])
+  rentals          RentalContract[]
+  statusHistory    InstrumentStatusHistory[]
+  conditionReports InstrumentConditionReport[]
+  photos           InstrumentPhoto[]
+  documents        InstrumentDocument[]
+  accessories      InstrumentAccessory[]
+  repairEvents     InstrumentRepairEvent[]
+  notes            Note[]
+  payments         Payment[]
+
+  @@unique([organizationId, internalId])
+  @@index([organizationId])
+  @@index([status])
+  @@index([groupCode])
+  @@index([serialNumber])
+}
+
+model Customer {
+  id                        String    @id @default(cuid())
+  organizationId            String
+  firstName                 String
+  lastName                  String
+  street                    String?
+  postalCode                String?
+  city                      String?
+  phone                     String?
+  email                     String?
+  customerType              String?
+  iban                      String?
+  directDebitMandateExists  Boolean   @default(false)
+  directDebitMandateDate    DateTime?
+  notes                     String?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  rentals      RentalContract[]
+  payments     Payment[]
+  notesList    Note[]
+  dunningRecords DunningRecord[]
+
+
+  @@index([organizationId])
+  @@index([lastName])
+  @@index([email])
+}
+
+model RentalContract {
+  id                 String               @id @default(cuid())
+  organizationId     String
+  customerId         String
+  instrumentId       String
+  startDate          DateTime
+  endDate            DateTime?
+  monthlyRent        Decimal              @db.Decimal(10, 2)
+  depositAmount      Decimal?             @db.Decimal(10, 2)
+  depositReceivedAt  DateTime?
+  depositReturnedAt  DateTime?
+  depositNotes       String?
+  paymentMethod      PaymentMethod        @default(UNKNOWN)
+  paymentReference   String
+  firstMonthCash     Boolean              @default(false)
+  status             RentalContractStatus @default(ACTIVE)
+  notes              String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer           @relation(fields: [customerId], references: [id])
+  instrument   Instrument         @relation(fields: [instrumentId], references: [id])
+  payments     Payment[]
+  documents    InstrumentDocument[]
+
+  @@index([organizationId])
+  @@index([customerId])
+  @@index([instrumentId])
+  @@index([status])
+  @@index([paymentReference])
+}
+
+model Payment {
+  id               String        @id @default(cuid())
+  organizationId   String
+  rentalContractId String
+  customerId       String
+  instrumentId     String
+  dueDate          DateTime
+  amount           Decimal       @db.Decimal(10, 2)
+  method           PaymentMethod
+  status           PaymentStatus @default(OPEN)
+  paidAt           DateTime?
+  paymentReference String?
+  bankReference    String?
+  notes            String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  rentalContract RentalContract @relation(fields: [rentalContractId], references: [id], onDelete: Cascade)
+  customer       Customer       @relation(fields: [customerId], references: [id])
+  instrument     Instrument     @relation(fields: [instrumentId], references: [id])
+  dunningRecords DunningRecord[]
+
+
+  @@index([organizationId])
+  @@index([rentalContractId])
+  @@index([customerId])
+  @@index([instrumentId])
+  @@index([dueDate])
+  @@index([status])
+  @@index([method])
+}
+
+model InstrumentStatusHistory {
+  id              String           @id @default(cuid())
+  instrumentId    String
+  oldStatus       InstrumentStatus?
+  newStatus       InstrumentStatus
+  reason          String?
+  changedByUserId String?
+  changedAt       DateTime         @default(now())
+
+  instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+
+  @@index([instrumentId])
+  @@index([changedAt])
+}
+
+model InstrumentConditionReport {
+  id                String              @id @default(cuid())
+  instrumentId      String
+  reportType        ConditionReportType @default(INSPECTION)
+  conditionRating   Int?
+  playable          Boolean?
+  rentable          Boolean?
+  summary           String?
+  defects           String?
+  recommendedAction String?
+  createdByUserId   String?
+  createdAt         DateTime            @default(now())
+
+  instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+
+  @@index([instrumentId])
+  @@index([createdAt])
+}
+
+model InstrumentPhoto {
+  id               String    @id @default(cuid())
+  instrumentId     String
+  fileUrl          String
+  filePath         String?
+  caption          String?
+  photoType        PhotoType @default(GENERAL)
+  uploadedByUserId String?
+  uploadedAt       DateTime  @default(now())
+
+  instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+
+  @@index([instrumentId])
+}
+
+model InstrumentDocument {
+  id               String       @id @default(cuid())
+  instrumentId     String
+  rentalContractId String?
+  fileUrl          String
+  filePath         String?
+  title            String
+  documentType     DocumentType @default(OTHER)
+  uploadedByUserId String?
+  uploadedAt       DateTime     @default(now())
+
+  instrument     Instrument      @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  rentalContract RentalContract? @relation(fields: [rentalContractId], references: [id])
+
+  @@index([instrumentId])
+  @@index([rentalContractId])
+}
+
+model InstrumentAccessory {
+  id           String   @id @default(cuid())
+  instrumentId String
+  name         String
+  description  String?
+  serialNumber String?
+  condition    String?
+  included     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+
+  @@index([instrumentId])
+}
+
+model InstrumentRepairEvent {
+  id           String   @id @default(cuid())
+  instrumentId String
+  repairDate   DateTime @default(now())
+  title        String
+  description  String?
+  costEstimate Decimal? @db.Decimal(10, 2)
+  actualCost   Decimal? @db.Decimal(10, 2)
+  status       String   @default("not_started")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+
+  @@index([instrumentId])
+}
+
+model Note {
+  id             String   @id @default(cuid())
+  organizationId String
+  instrumentId   String?
+  customerId     String?
+  noteType       NoteType @default(GENERAL)
+  content        String
+  createdByUserId String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  instrument   Instrument?  @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  customer     Customer?    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([instrumentId])
+  @@index([customerId])
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String?
+  entityType     String
+  entityId       String
+  action         String
+  oldData        Json?
+  newData        Json?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model OrganizationSettings {
+  id                  String   @id @default(cuid())
+  organizationId      String   @unique
+  appName             String?
+  primaryColor        String?
+  loginBgColor        String?
+  logoUrl             String?
+  logoPath            String?
+  updatedAt           DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model DunningRecord {
+  id             String   @id @default(cuid())
+  organizationId String
+  paymentId      String
+  customerId     String
+  level          Int
+  fee            Decimal  @default(0) @db.Decimal(10, 2)
+  sentAt         DateTime @default(now())
+  sentByUserId   String?
+  notes          String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  payment      Payment      @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId], references: [id])
+
+  @@index([organizationId])
+  @@index([paymentId])
+  @@index([customerId])
+}
